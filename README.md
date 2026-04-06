@@ -40,6 +40,9 @@ This repository contains the pytorch implementation for the paper [VisualSync: M
 ## Overview
 ![overview](assets/method.png)
 
+## Update
+- **2026.04.06**: Some code is not fully cleaned up yet due to graduation. Original codes are provided [here](https://drive.google.com/drive/folders/110iEHJ_xVqMq88SCua8DWnXPqw0oBBP6?usp=sharing) for reference.
+
 ## 📄 Table of Contents
 
 - [Installation](#installation)
