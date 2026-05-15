@@ -535,19 +535,25 @@ def write_colmap_points3D_txt(file_path, points3D):
 
 def get_sports(base):
     """
-    Get a list of sports from the base directory. Assumes directory names are formatted as "<sport>_<sport>_<other_info>".
-    
-    Args:
-        base: Base path for the dataset
-        
-    Returns:
-        List of sports
+    PRIN grouping:
+    ID_0_fpv_...
+    ID_0_cam_tpv_...
+    ID_0_cam_top_...
+    should all be grouped as ID_0, not ID.
     """
-    sports = set([])
-    for dir in sorted(os.listdir(base)):
-        sport = "_".join(dir.split("_")[:1])
-        if sport not in sports:
-            sports.add(sport)
+    sports = set()
+    for dirname in sorted(os.listdir(base)):
+        full = os.path.join(base, dirname)
+        if not os.path.isdir(full):
+            continue
+
+        parts = dirname.split("_")
+        if len(parts) >= 2 and parts[0] == "ID":
+            sport = f"{parts[0]}_{parts[1]}"
+        else:
+            sport = parts[0]
+
+        sports.add(sport)
 
     return sports
 
@@ -588,11 +594,23 @@ def get_paths(base_path, sampling_mode, sport):
     Returns:
         List of image paths
     """
-    subdirs = [d for d in os.listdir(base_path) if (os.path.isdir(os.path.join(base_path, d)) and sport in d)]
+    subdirs = [
+        d for d in os.listdir(base_path)
+        if os.path.isdir(os.path.join(base_path, d))
+        and (d == sport or d.startswith(sport + "_"))
+    ]
 
     references = []
 
-    subsubdirs = sorted([os.path.join(x, "rgb") for x in subdirs])
+    subsubdirs = []
+    for x in subdirs:
+        if os.path.isdir(os.path.join(base_path, x, "rgb")):
+            subsubdirs.append(os.path.join(x, "rgb"))
+        elif os.path.isdir(os.path.join(base_path, x, "rgb_aligned")):
+            subsubdirs.append(os.path.join(x, "rgb_aligned"))
+        else:
+            print(f"[WARN] no rgb or rgb_aligned found for {x}")
+    subsubdirs = sorted(subsubdirs)
     
     for subdir in subsubdirs:
         for root, _, files in os.walk(os.path.join(base_path, subdir)):
@@ -611,7 +629,15 @@ def get_paths(base_path, sampling_mode, sport):
 
     references = []
 
-    subsubdirs = sorted([os.path.join(x, "rgb") for x in subdirs])
+    subsubdirs = []
+    for x in subdirs:
+        if os.path.isdir(os.path.join(base_path, x, "rgb")):
+            subsubdirs.append(os.path.join(x, "rgb"))
+        elif os.path.isdir(os.path.join(base_path, x, "rgb_aligned")):
+            subsubdirs.append(os.path.join(x, "rgb_aligned"))
+        else:
+            print(f"[WARN] no rgb or rgb_aligned found for {x}")
+    subsubdirs = sorted(subsubdirs)
     
     for subdir in subsubdirs:
         for root, _, files in os.walk(os.path.join(base_path, subdir)):
@@ -707,6 +733,9 @@ def extract_camera_parameters(base, predictions, image_names, all_ratios, save_n
         
         # Get all images in this base directory
         rgb = os.path.join(base, image_base, "rgb")
+        if not os.path.exists(rgb):
+            rgb = os.path.join(base, image_base, "rgb_aligned")
+
         if os.path.exists(rgb):
             all_image_names = sorted(os.listdir(rgb))
             
@@ -739,7 +768,10 @@ def extract_camera_parameters(base, predictions, image_names, all_ratios, save_n
         save_path = os.path.join(base, basepath, "vggt")
         os.makedirs(save_path, exist_ok=True)
 
-        l = len(os.listdir(os.path.join(base, basepath, "rgb")))
+        rgb_count_dir = os.path.join(base, basepath, "rgb")
+        if not os.path.exists(rgb_count_dir):
+            rgb_count_dir = os.path.join(base, basepath, "rgb_aligned")
+        l = len(os.listdir(rgb_count_dir))
 
         if "cam" in basepath: # stationary cameras
             c2w = np.repeat(c2w, l, axis=0)
@@ -771,74 +803,159 @@ def extract_camera_parameters(base, predictions, image_names, all_ratios, save_n
         
         print(f"Saved camera parameters for {basepath} to {save_path}")
 
-def process_sport_with_vggt(base, sport, device, model, sampling_mode=0):
-    """
-    Process all images for a specific sport using VGGT.
-    
-    Args:
-        base: Base path for the dataset
-        sport: Sport type (e.g., "volleyball")
-        device: Torch device
-        model: VGGT model
-        sampling_mode: Sampling mode for image selection
-        
-    Returns:
-        Tuple of (predictions, image_names)
-    """
-    # Get image paths for this sport
-    references = get_paths(base, sampling_mode, sport)
-    
-    if not references:
-        print(f"No images found for sport {sport}. Skipping.")
-        return None, None
 
+def _run_vggt_once(base, references, device, model):
+    """
+    Run VGGT on one small list of relative image paths.
+    Returns predictions, references, all_ratios.
+    """
     full_paths = [os.path.join(base, x) for x in references]
-        # Process images with VGGT
+
     images, all_ratios = load_and_preprocess_images(full_paths, mode="pad")
     images = images.to(device)
-    
-    print(f"Preprocessed images shape: {images.shape}")
-    print("Running inference...")
-    
+
+    print(f"Preprocessed chunk shape: {images.shape}")
+
     dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
-    
+
     with torch.no_grad():
         with torch.cuda.amp.autocast(dtype=dtype):
             predictions = model(images)
-    
+
     print("Converting pose encoding to camera parameters...")
     extrinsic, intrinsic = pose_encoding_to_extri_intri(predictions["pose_enc"], images.shape[-2:])
     predictions["extrinsic"] = extrinsic
     predictions["intrinsic"] = intrinsic
-    
-    for key in predictions.keys():
+
+    for key in list(predictions.keys()):
         if isinstance(predictions[key], torch.Tensor):
-            predictions[key] = predictions[key].cpu().numpy().squeeze(0)  # remove batch dimension
-    
-    # print("Computing 3D points from depth maps...")
-    depth_map = predictions["depth"]  # (S, H, W, 1)
-    world_points = unproject_depth_map_to_point_map(depth_map, predictions["extrinsic"], predictions["intrinsic"])
+            predictions[key] = predictions[key].detach().cpu().numpy().squeeze(0)
+
+    depth_map = predictions["depth"]
+    world_points = unproject_depth_map_to_point_map(
+        depth_map,
+        predictions["extrinsic"],
+        predictions["intrinsic"]
+    )
     predictions["world_points_from_depth"] = world_points
-    
-    # Prepare original images
+
     original_images = []
     for img_path in references:
-        img = Image.open(os.path.join(base, img_path)).convert('RGB')
+        img = Image.open(os.path.join(base, img_path)).convert("RGB")
         original_images.append(np.array(img))
-    
+
     predictions["original_images"] = original_images
-    
+
     S, H, W = world_points.shape[:3]
     normalized_images = np.zeros((S, H, W, 3), dtype=np.float32)
-    
+
     for i, img in enumerate(original_images):
         resized_img = cv2.resize(img, (W, H))
         normalized_images[i] = resized_img / 255.0
-    
+
     predictions["images"] = normalized_images
-    
-    # Return the predictions and the original reference paths
+
+    del images
+    torch.cuda.empty_cache()
+
     return predictions, references, all_ratios
+
+
+def _concat_vggt_predictions(items):
+    """
+    Merge chunk predictions while keeping each image path only once.
+    Static cam anchor frames appear in many chunks; we keep their first prediction.
+    """
+    seen = set()
+    final_refs = []
+    final_ratios = []
+    buckets = {}
+
+    for predictions, references, all_ratios in items:
+        for local_i, ref in enumerate(references):
+            if ref in seen:
+                continue
+
+            seen.add(ref)
+            final_refs.append(ref)
+            final_ratios.append(all_ratios[local_i])
+
+            for key, value in predictions.items():
+                if key == "original_images":
+                    buckets.setdefault(key, []).append(value[local_i])
+                elif isinstance(value, np.ndarray):
+                    buckets.setdefault(key, []).append(value[local_i])
+
+    final_predictions = {}
+
+    for key, values in buckets.items():
+        if key == "original_images":
+            final_predictions[key] = values
+        else:
+            final_predictions[key] = np.stack(values, axis=0)
+
+    return final_predictions, final_refs, final_ratios
+
+
+def process_sport_with_vggt(base, sport, device, model, sampling_mode=0, max_images_per_chunk=32):
+    """
+    Process all images for one PRIN ID using chunked VGGT inference.
+
+    Important:
+    - Static cameras contain 'cam' in the folder name: TPV/TOP.
+    - Their first frames are used as anchors in every chunk.
+    - FPV frames are split into chunks to avoid OOM.
+    """
+    references = get_paths(base, sampling_mode, sport)
+
+    if not references:
+        print(f"No images found for sport {sport}. Skipping.")
+        return None, None, None
+
+    static_refs = [r for r in references if "cam" in r.split(os.sep)[0]]
+    dynamic_refs = [r for r in references if "cam" not in r.split(os.sep)[0]]
+
+    print(f"VGGT refs for {sport}: total={len(references)}, static_anchors={len(static_refs)}, dynamic={len(dynamic_refs)}")
+    print(f"Using max_images_per_chunk={max_images_per_chunk}")
+
+    # If the full set is small enough, run original single-shot VGGT.
+    if len(references) <= max_images_per_chunk:
+        return _run_vggt_once(base, references, device, model)
+
+    if len(static_refs) >= max_images_per_chunk:
+        raise RuntimeError(
+            f"Too many static anchor refs ({len(static_refs)}) for max_images_per_chunk={max_images_per_chunk}. "
+            f"Increase max_images_per_chunk or reduce static refs."
+        )
+
+    # Chunk dynamic frames while repeating static anchors.
+    chunk_capacity = max_images_per_chunk - len(static_refs)
+    chunk_capacity = max(1, chunk_capacity)
+
+    chunks = []
+
+    if dynamic_refs:
+        for start in range(0, len(dynamic_refs), chunk_capacity):
+            dyn_chunk = dynamic_refs[start:start + chunk_capacity]
+            chunk_refs = static_refs + dyn_chunk
+            chunks.append(chunk_refs)
+    else:
+        chunks.append(static_refs)
+
+    print(f"Running VGGT in {len(chunks)} chunks")
+
+    chunk_outputs = []
+
+    for chunk_id, chunk_refs in enumerate(chunks):
+        print(f"\n[VGGT chunk {chunk_id + 1}/{len(chunks)}] images={len(chunk_refs)}")
+        pred, refs, ratios = _run_vggt_once(base, chunk_refs, device, model)
+        chunk_outputs.append((pred, refs, ratios))
+
+    predictions, final_refs, final_ratios = _concat_vggt_predictions(chunk_outputs)
+
+    print(f"After merging chunks: {len(final_refs)} unique images")
+
+    return predictions, final_refs, final_ratios
 
 def main():
     parser = argparse.ArgumentParser(description="Process images with VGGT and save camera parameters")
@@ -865,6 +982,8 @@ def main():
                         help="Name for the saved camera parameters file")
     parser.add_argument("--sampling_mode", type=int, default=0,
                         help="Sampling mode for image selection (0-3, higher means more aggressive sampling)")
+    parser.add_argument("--max_images_per_chunk", type=int, default=32,
+                        help="Maximum number of images passed to VGGT at once to avoid OOM")
     
     args = parser.parse_args()
     
@@ -883,7 +1002,7 @@ def main():
         start_time = time.time()
         
         # Process images for this sport with VGGT
-        predictions, references, all_ratios = process_sport_with_vggt(BASE, sport, device, model, args.sampling_mode)
+        predictions, references, all_ratios = process_sport_with_vggt(BASE, sport, device, model, args.sampling_mode, args.max_images_per_chunk)
         
         if predictions is None:
             continue
@@ -945,7 +1064,6 @@ def main():
         #  clear all cuda memory
         torch.cuda.empty_cache()
         
-        breakpoint()
         
 
 if __name__ == "__main__":

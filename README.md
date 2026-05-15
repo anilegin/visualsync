@@ -1,207 +1,612 @@
-<br />
-<p align="center">
+# PRIN Dataset VisualSync Pipeline
 
-  <h1 align="center">VisualSync: Multi-Camera Synchronization via Cross-View Object Motion</h1>
+This repository contains a working and minimal dataset spesific implementation on top of VisualSync. The goal is to synchronize three PRIN camera views:
 
-  <p align="center">
-   NeurIPS, 2025
-    <br />
-    <a href="https://stevenlsw.github.io"><strong>Shaowei Liu*</strong></a>
-    ·
-    <a href="https://Davidyao99.github.io/"><strong>David Yifan Yao*</strong></a>
-    ·
-    <a href="https://saurabhg.web.illinois.edu/"><strong>Saurabh Gupta†</strong></a>
-    ·
-    <a href="https://shenlong.web.illinois.edu/"><strong>Shenlong Wang†</strong></a>
-    ·
-  </p>
+```text
+TOP  = overhead shelf view
+TPV  = third-person room view
+FPV  = first-person egocentric view
+```
 
-<p align="center"> 
-<img src="assets/vsync.png" alt="Demo VisualSync" />
-</p>
+The current recommended strategy is to use TPV as the bridge camera:
 
-  <p align="center">
-    <a href='https://drive.google.com/file/d/1-MwQRWBm_I3576gBaC_f7D3iYcFpiox0/view?usp=sharing'>
-      <img src='https://img.shields.io/badge/Paper-PDF-green?style=flat&logo=arXiv&logoColor=green' alt='Paper PDF'></a>
-    <a href='https://arxiv.org/abs/2512.02017'><img src='https://img.shields.io/badge/arXiv-2512.02017-b31b1b.svg'  alt='Arxiv'></a>
-    <a href='https://stevenlsw.github.io/visualsync/' style='padding-left: 0.5rem;'>
-      <img src='https://img.shields.io/badge/Project-Page-blue?style=flat&logo=Google%20chrome&logoColor=blue' alt='Project Page'></a>
-    <!-- <a href='' style='padding-left: 0.5rem;'><img src='https://colab.research.google.com/assets/colab-badge.svg' alt='Google Colab'></a>
-    <a href='https://youtu.be/' style='padding-left: 0.5rem;'>
-      <img src='https://img.shields.io/badge/Youtube-Video-red?style=flat&logo=youtube&logoColor=red' alt='Youtube Video'></a> -->
-  </p>
+```text
+TOP ↔ TPV ↔ FPV
+```
 
-</p>
-<br />
+`TOP ↔ FPV` can be tested as a diagnostic pair, but it should not be forced into the global solution if it disagrees with the TPV bridge chain.
 
-This repository contains the pytorch implementation for the paper [VisualSync: Multi-Camera Synchronization via Cross-View Object Motion](https://stevenlsw.github.io/visualsync/), NeurIPS 2025. **VisualSync** aligns unsynchronized multi-view videos by matching object motion with epipolar cues. The synchronized outputs can benefit dynamic reconstruction, novel view synthesis, and multi-view data engines.
-
-
-## Overview
-![overview](assets/method.png)
-
-## Update
-- **2026.04.06**: Some code is not fully cleaned up yet due to graduation. Original codes are provided [here](https://drive.google.com/drive/folders/110iEHJ_xVqMq88SCua8DWnXPqw0oBBP6?usp=sharing) for reference.
-
-## 📄 Table of Contents
-
-- [Installation](#installation)
-- [In-the-Wild Demo](#in-the-wild-demo)
-- [Data Preprocessing](#preprocessing)
-- [Citation](#citation)
-
-
-## Installation
-
-- Clone this repository: 
-    ```Shell
-    git clone https://github.com/stevenlsw/visualsync.git
-    cd visualsync
-    ```
-
-- Install Conda Environment
-    > **Note:** This installation is tested to work with **CUDA 12.4**.
-    ```bash
-    bash scripts/install.sh # create conda env visualsync
-    conda activate visualsync
-    ```
-
-- Download Model Weights
-    ```bash
-    bash scripts/download_weights.sh
-    ```
-
-
-## In-the-Wild Demo
-We show how to synchronize 3 EFL views. 
-
-| View 1 | View 2 | View 3 |
-|:-------:|:-------:|:-------:|
-| ![EFL Video 1](assets/Z5TlCImQNK0_150_200.gif) | ![EFL Video 2](assets/Z5TlCImQNK0_575_625.gif) | ![EFL Video 3](assets/Z5TlCImQNK0_800_860.gif) |
-
-### Step-0: Preprocess
----
- We provide the preprocessed data for the demo at [](). Please download and unzip, place it in the `data` directory. For custom videos, please follow the data [preprocessing](#preprocessing) steps below.
-```Shell
-  data/Z5TlCImQNK0/
-    ├── Z5TlCImQNK0_150_200/
-    │   ├── rgb/ # store video frames
-    │   ├── deva/ # store dynamic object masks
-    │   ├── vggt/ # store camera parameters
-    │   ├── cotracker/ # store tracking results
-    ├── Z5TlCImQNK0_575_625/
-    ├── Z5TlCImQNK0_800_860/
-  ```
-
-### Step-1: Cross-view matching
----
-- Visualize cross-view matching:
-
-![cross-view-matching](assets/cross_view_matching.png)
-
-
-### Step-2: Pairwise synchronization
----
-- Visualize the energy landscape, the X-axis is the offsete, Y-axis is the synchronization Sampson error.
-<!-- ![energy-landscape](assets/pairwise_energy.png) -->
-<p align="center">
-  <img src="assets/pairwise_energy.png" alt="key-frames" width="50%">
-</p>
-
-### Step-3: Global synchronization
----
-- Visualize the synchronization results at each time step from all views.
-
-![key-frames](assets/keyframe.png){width=50%}
-
-
-## Preprocessing
-Given custom videos, follow the following steps to preprocess the data and run synchronization follow [in-the-wild demo](#in-the-wild-demo).
-
-### 1. Dataset Preparation
 ---
 
-- The dataset is organized in the following structure. The main data directory (e.g., `DATA_DIR`) can be named anything, but the subdirectories must follow this format for the preprocessing scripts to work correctly:
-    ```text
-    DATA_DIR/
-    ├── scene1_cam1/
-    │   └── rgb/
-    │       ├── <img_name>1.jpg
-    │       ├── <img_name>2.jpg
-    │       └── ...
-    ├── scene1_cam2/
-    │   └── rgb/
-    │       └── ...
-    ├── scene1_3/
-    │   └── rgb/
-    │       └── ...
-    └── scene2_1/
-        └── rgb/
-            └── ...
-    ```
-- **Important Formatting Rules:**
-    * **Scene Grouping:** The name of each video directory must have its **scene name before the first underscore** to identify scenes and views (e.g., `scene1_cam1` and `scene1_3` are grouped as `scene1`). This is critical for the VGGT and segmentation scripts.
-    * **Image Directory:** All video frames (images) must be stored in a subdirectory named `rgb`.
-    * **Static Cameras:** If a video directory name contains **"cam"** (e.g., `scene1_cam1`), it is treated as a static camera. For these videos, **only the first image** will be used for pose prediction, for dynamic cameras (not include `cam` in its name) all images will be used for pose estimation.
+## 1. Minimal repository layout
+
+The custom scripts are collected under `src/`:
+
+```text
+src/
+├── prepare_prin_timecrop.py
+├── create_tags.py
+├── run_cotracker_all.py
+├── img_match_v4.py
+├── filter_corr_v2.py
+├── shaowei_sync_v6.py
+├── collect_sync_results.py
+├── run_cotracker_v5.py
+├── match_utils.py
+└── job_sync_v6.py
+```
+
+The original external dependencies remain in the repository as required by VisualSync, for example:
+
+```text
+Tracking-Anything-with-DEVA/
+mast3r/
+co-tracker/
+preprocess/
+```
+
+Run all commands from the repository root:
+### gpt put here venv create and install requirements.txt i put it there
 
 
-### 2. Dynamic Object Segmentation
+### gpt then also i removed vggt, it seems like that vggt to colmap already does its job that folder is always empty. but for others we might need something like cd Tracking-Anything-with-DEVA
+pip install -e .
+cd ..
+
+cd Grounded-SAM-2
+pip install -e .
+pip install --no-build-isolation -e grounding_dino
+pip install -U "vggt@git+https://github.com/facebookresearch/vggt.git"
+
 ---
 
-There are multiple ways for video dynamic object segmentation. Here we follow [Uni4D](https://github.com/Davidyao99/uni4d/). We use GPT to recognize dynamic objects in the video and use [SAM2](https://github.com/facebookresearch/sam2) to segment dynamic objects per frame and use [DEVA](https://github.com/hkchengrex/Tracking-Anything-with-DEVA/) to track across frames. User can simply use latest [SAM2](https://github.com/facebookresearch/sam2) for dynamic object tracking and bypass below steps.
+## 2. Global variables
 
-- 1. [Optional] Find your API key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys) and set it as an environment variable (bypass by specifying dynamic object names in SAM2)
-    ```bash
-    export "OPENAI_API_KEY=sk-your_api_key_here" # (Be sure to replace `sk-your_api_key_here` with your actual key.)
-    ```
-    
+Set these once per experiment:
 
-- 2. [Optional] Call GPT to identify dynamic objects (bypass by specifying dynamic object names in SAM2)
-    ```bash
-    python preprocess/run_gpt.py --workdir data/python preprocess/run_gpt.py --sample 30
-    ```
+```bash
+export RAW_ROOT="/<your_path_to_dataset>/PRIN_DATASET/Video ed Excel"
+export GROUP="ID_0"
 
-- 3. Run GroundingDINO SAM2 to segment dynamic objects
-    ```bash
-    python preprocess/run_dino_sam2.py --workdir data/Z5TlCImQNK0
-    ```
-- 4. [Optional] Run DEVA to track dynamic objects (bypass by running video segmentation in SAM2)
-    ```bash
-    cd Tracking-Anything-with-DEVA/
-    python evaluation/eval_with_detections.py --workdir data/Z5TlCImQNK0 --max_missed_detection_count 9000 --output-dir deva
-    cd ..
-    ```
-- The output segmentation visualization:
+export START_SEC=15
+export END_SEC=30
+export FPS=10
 
-  ![segmentation](assets/Z5TlCImQNK0_150_200_seg.gif)
+export DATA_ROOT="data/prin_${GROUP}_${START_SEC}_${END_SEC}"
+export TRACK_ROOT="tracks/prin_${GROUP}_${START_SEC}_${END_SEC}"
+export RESULT_ROOT="results/prin_${GROUP}_${START_SEC}_${END_SEC}"
 
-## 3. Camera Pose Estimation
+export MASK_PREFIX="deva_improved"
+```
 
-- Run VGG-T to get camera pose estimation. Beside saving the camera parameters, it will also save the visualization as colmap format under `vggt_output` directory for visualization or debug.
-    ```bash
-    python preprocess/vggt_to_colmap.py --workdir data/Z5TlCImQNK0 --vis_path vggt_output --save_colmap
-    ```
-## 4. Pixel-level Tracking 
-- Run CoTracker3 to get tracking results:
+Notes:
 
-  ![tracking](assets/Z5TlCImQNK0_150_200_track.gif)
+- `START_SEC` and `END_SEC` define the action-focused crop window.
+- The output frame folders are named `rgb_aligned`.
+- By default, `TOP` and `FPV` are horizontally flipped during extraction because this improved matching behavior in our tests.
 
+---
 
-## Citation
-```BiBTeX
-@inproceedings{liu2025visualsync},
-  title={VisualSync: Multi-Camera Synchronization via Cross-View Object Motion},
-  author={Liu, Shaowei and Yao, David Yifan and Gupta, Saurabh and Wang, Shenlong},
-  booktitle={NeurIPS},
-  year={2025}
+## 3. Prepare the cropped PRIN dataset
+
+This step reads the original PRIN folder structure:
+
+```text
+$RAW_ROOT/
+└── ID_0/
+    ├── TOP/
+    ├── TPV/
+    └── FPV/
+```
+
+and creates:
+
+```text
+$DATA_ROOT/
+├── ID_0_cam_top_000_150/rgb_aligned/
+├── ID_0_cam_tpv_000_150/rgb_aligned/
+└── ID_0_fpv_000_150/rgb_aligned/
+```
+
+Run:
+
+```bash
+python src/prepare_prin_timecrop.py \
+  --raw_root "$RAW_ROOT" \
+  --out_root "$DATA_ROOT" \
+  --group "$GROUP" \
+  --start_sec "$START_SEC" \
+  --end_sec "$END_SEC" \
+  --fps "$FPS" \
+  --flip_views TOP,FPV \
+  --overwrite
+```
+
+The script checks both `.mp4` and `.MP4`.
+
+Check the output:
+
+```bash
+find "$DATA_ROOT" -maxdepth 2 -type d | sort
+find "$DATA_ROOT" -path "*/rgb_aligned/*.jpg" | wc -l
+```
+
+---
+
+## 4. Create GPT/SAM2 tag files
+
+For the simplified version, we ask the segmentation stage to focus only on dynamic action regions:
+
+```json
+{
+  "dynamic": [
+    "hand",
+    "arm"
+  ]
 }
 ```
 
+Run:
 
-## Acknowledgement
-- [Uni4D](https://github.com/Davidyao99/uni4d/) for dynamic object segmentation.
-- [SAM2](https://github.com/facebookresearch/sam2) for video segmentation.
-- [DEVA](https://github.com/hkchengrex/Tracking-Anything-with-DEVA/) for video segmentation.
-- [CoTracker3](https://github.com/facebookresearch/co-tracker) for video tracking. 
-- [VGGT](https://github.com/facebookresearch/vggt) for camera pose estimation.
-- [MASt3R](https://github.com/naver/mast3r) for cross-view correspondence.
+```bash
+python src/create_tags.py \
+  --data_root "$DATA_ROOT" \
+  --dynamic hand,arm \
+  --overwrite
+```
+
+This creates:
+
+```text
+$DATA_ROOT/ID_0_cam_top_000_150/gpt_video/tags.json
+$DATA_ROOT/ID_0_cam_tpv_000_150/gpt_video/tags.json
+$DATA_ROOT/ID_0_fpv_000_150/gpt_video/tags.json
+```
+
+Check:
+
+```bash
+find "$DATA_ROOT" -path "*/gpt_video/tags.json" -type f -print -exec cat {} \;
+```
+
+---
+
+## 5. Run SAM2 / GroundingDINO segmentation
+
+Run the VisualSync segmentation step:
+
+```bash
+python preprocess/run_dino_sam2.py \
+  --workdir "$DATA_ROOT"
+```
+
+You will be able to see which tags SAM2 used if you visually inspect terminal. 
+
+Check masks:
+
+```bash
+find "$DATA_ROOT" -path "*/$MASK_PREFIX/Annotations" -type d | sort
+```
+
+---
+
+## 6. Run VGGT camera estimation
+
+Run:
+
+```bash
+python preprocess/vggt_to_colmap.py \
+  --workdir "$DATA_ROOT" \
+  --vis_path vggt_output \
+  --save_colmap
+```
+
+Check:
+
+```bash
+find "$DATA_ROOT" -path "*/vggt/*.npz" -type f | sort
+```
+
+Expected:
+
+```text
+camera_parameters.npz
+```
+
+---
+
+## 7. Run CoTracker
+
+Use the SAM2 masks directly:
+
+```bash
+--mask_prefix "$MASK_PREFIX"
+```
+
+Run TOP and TPV with denser settings:
+
+```bash
+rm -rf "$TRACK_ROOT"
+mkdir -p "$TRACK_ROOT"
+
+python src/run_cotracker_all.py \
+  --dataset_root "$DATA_ROOT" \
+  --track_root "$TRACK_ROOT" \
+  --gpu 0 \
+  --mask_prefix "$MASK_PREFIX" \
+  --only static \
+  --static_interval 3 \
+  --static_grid_step 5 \
+  --skip_exist
+```
+
+Run FPV more conservatively because it is much slower:
+
+```bash
+python src/run_cotracker_all.py \
+  --dataset_root "$DATA_ROOT" \
+  --track_root "$TRACK_ROOT" \
+  --gpu 0 \
+  --mask_prefix "$MASK_PREFIX" \
+  --only fpv \
+  --dynamic_interval 8 \
+  --dynamic_grid_step 10 \
+  --skip_exist
+```
+
+If FPV becomes too sparse, rerun only FPV with a denser setting:
+
+```bash
+python src/run_cotracker_all.py \
+  --dataset_root "$DATA_ROOT" \
+  --track_root "$TRACK_ROOT" \
+  --gpu 0 \
+  --mask_prefix "$MASK_PREFIX" \
+  --only fpv \
+  --dynamic_interval 5 \
+  --dynamic_grid_step 8
+```
+
+Check:
+
+```bash
+find "$TRACK_ROOT" -name "tracks.pkl" | sort
+```
+
+Expected:
+
+```text
+$TRACK_ROOT/ID_0_cam_top_000_150/tracks.pkl
+$TRACK_ROOT/ID_0_cam_tpv_000_150/tracks.pkl
+$TRACK_ROOT/ID_0_fpv_000_150/tracks.pkl
+```
+
+---
+
+## 8. Run MASt3R image matching
+
+Create result root:
+
+```bash
+rm -rf "$RESULT_ROOT"
+mkdir -p "$RESULT_ROOT/$GROUP"
+```
+
+### 8.1 TOP–TPV
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python src/img_match_v4.py \
+  --dataset_root "$DATA_ROOT" \
+  --video1_name "${GROUP}_cam_top_000_150" \
+  --video2_name "${GROUP}_cam_tpv_000_150" \
+  --save_root "$RESULT_ROOT/$GROUP" \
+  --mask_prefix "$MASK_PREFIX" \
+  --interval 2 \
+  --batch_size 16 \
+  --filter_mask \
+  --enable_blurry
+```
+
+### 8.2 TPV–FPV
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python src/img_match_v4.py \
+  --dataset_root "$DATA_ROOT" \
+  --video1_name "${GROUP}_cam_tpv_000_150" \
+  --video2_name "${GROUP}_fpv_000_150" \
+  --save_root "$RESULT_ROOT/$GROUP" \
+  --mask_prefix "$MASK_PREFIX" \
+  --interval 3 \
+  --batch_size 16 \
+  --filter_mask \
+  --enable_blurry
+```
+
+### 8.3 Optional TOP–FPV diagnostic
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python src/img_match_v4.py \
+  --dataset_root "$DATA_ROOT" \
+  --video1_name "${GROUP}_cam_top_000_150" \
+  --video2_name "${GROUP}_fpv_000_150" \
+  --save_root "$RESULT_ROOT/$GROUP" \
+  --mask_prefix "$MASK_PREFIX" \
+  --interval 3 \
+  --batch_size 16 \
+  --filter_mask \
+  --enable_blurry
+```
+
+---
+
+## 9. Filter track correspondences
+
+Use relaxed thresholds for action-specific masks:
+
+```text
+min_matches = 3
+pixel_tol = 10
+min_neighbors = 1
+```
+
+### 9.1 TOP–TPV
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python src/filter_corr_v2.py \
+  --dataset_root "$DATA_ROOT" \
+  --result_root "$RESULT_ROOT" \
+  --track_root "$TRACK_ROOT" \
+  --result_name1 "${GROUP}_cam_top_000_150" \
+  --result_name2 "${GROUP}_cam_tpv_000_150" \
+  --group_prefix "$GROUP" \
+  --mask_prefix "$MASK_PREFIX" \
+  --min_matches 3 \
+  --pixel_tol 10 \
+  --min_neighbors 1 \
+  --max_batch_size 4096
+```
+
+### 9.2 TPV–FPV
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python src/filter_corr_v2.py \
+  --dataset_root "$DATA_ROOT" \
+  --result_root "$RESULT_ROOT" \
+  --track_root "$TRACK_ROOT" \
+  --result_name1 "${GROUP}_cam_tpv_000_150" \
+  --result_name2 "${GROUP}_fpv_000_150" \
+  --group_prefix "$GROUP" \
+  --mask_prefix "$MASK_PREFIX" \
+  --min_matches 3 \
+  --pixel_tol 10 \
+  --min_neighbors 1 \
+  --max_batch_size 4096
+```
+
+### 9.3 Optional TOP–FPV
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python src/filter_corr_v2.py \
+  --dataset_root "$DATA_ROOT" \
+  --result_root "$RESULT_ROOT" \
+  --track_root "$TRACK_ROOT" \
+  --result_name1 "${GROUP}_cam_top_000_150" \
+  --result_name2 "${GROUP}_fpv_000_150" \
+  --group_prefix "$GROUP" \
+  --mask_prefix "$MASK_PREFIX" \
+  --min_matches 3 \
+  --pixel_tol 10 \
+  --min_neighbors 1 \
+  --max_batch_size 4096
+```
+
+Check outputs:
+
+```bash
+find "$RESULT_ROOT/$GROUP" -name "tracks_match_v2.npz" -exec ls -lh {} \;
+```
+
+---
+
+## 10. Run VisualSync offset estimation
+
+Use a constrained search range for cropped action windows:
+
+```text
+offset_range = 25
+```
+
+Large ranges can create false minima, especially with FPV.
+
+### 10.1 TOP–TPV
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python src/shaowei_sync_v6.py \
+  --dataset_root "$DATA_ROOT" \
+  --result_root "$RESULT_ROOT" \
+  --video1_name "${GROUP}_cam_top_000_150" \
+  --video2_name "${GROUP}_cam_tpv_000_150" \
+  --offset_range 25 \
+  --moving_threshold 0.5 \
+  --pixel_threshold 4 \
+  --max_batch_size 4096 \
+  --max_N 30000 \
+  --use_v2 \
+  --use_vggt \
+  --disable_gt
+```
+
+### 10.2 TPV–FPV
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python src/shaowei_sync_v6.py \
+  --dataset_root "$DATA_ROOT" \
+  --result_root "$RESULT_ROOT" \
+  --video1_name "${GROUP}_cam_tpv_000_150" \
+  --video2_name "${GROUP}_fpv_000_150" \
+  --offset_range 25 \
+  --moving_threshold 0.5 \
+  --pixel_threshold 4 \
+  --max_batch_size 4096 \
+  --max_N 30000 \
+  --use_v2 \
+  --use_vggt \
+  --disable_gt
+```
+
+### 10.3 Optional TOP–FPV
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python src/shaowei_sync_v6.py \
+  --dataset_root "$DATA_ROOT" \
+  --result_root "$RESULT_ROOT" \
+  --video1_name "${GROUP}_cam_top_000_150" \
+  --video2_name "${GROUP}_fpv_000_150" \
+  --offset_range 25 \
+  --moving_threshold 0.5 \
+  --pixel_threshold 4 \
+  --max_batch_size 4096 \
+  --max_N 30000 \
+  --use_v2 \
+  --use_vggt \
+  --disable_gt
+```
+
+---
+
+## 11. Inspect candidate offsets
+
+Use the collector script to summarize pairwise candidates and build global alignment:
+
+```bash
+python src/collect_sync_results.py \
+  --dataset_root "$DATA_ROOT" \
+  --result_root "$RESULT_ROOT" \
+  --group_name "$GROUP" \
+  --fps "$FPS" \
+  --max_seconds $((END_SEC-START_SEC)) \
+  --panel_height 480 \
+  --ignore_pair "${GROUP}_cam_top_000_150__${GROUP}_fpv_000_150"
+```
+
+This creates:
+
+```text
+$RESULT_ROOT/pairwise_offsets.csv
+$RESULT_ROOT/global_offsets.csv
+$RESULT_ROOT/merged_videos/
+```
+
+Check:
+
+```bash
+cat "$RESULT_ROOT/pairwise_offsets.csv"
+cat "$RESULT_ROOT/global_offsets.csv"
+ls -lh "$RESULT_ROOT/merged_videos"
+```
+
+If the merged video appears sign-reversed, regenerate with:
+
+```bash
+python src/collect_sync_results.py \
+  --dataset_root "$DATA_ROOT" \
+  --result_root "$RESULT_ROOT" \
+  --group_name "$GROUP" \
+  --fps "$FPS" \
+  --max_seconds $((END_SEC-START_SEC)) \
+  --panel_height 480 \
+  --offset_sign -1 \
+  --out_video_dir "$RESULT_ROOT/merged_videos_flip" \
+  --ignore_pair "${GROUP}_cam_top_000_150__${GROUP}_fpv_000_150"
+```
+
+---
+
+## 12. Recommended interpretation
+
+The most stable graph is usually:
+
+```text
+TOP ↔ TPV ↔ FPV
+```
+
+Use:
+
+```text
+TOP–TPV
+TPV–FPV
+```
+
+for global alignment.
+
+Use:
+
+```text
+TOP–FPV
+```
+
+only as a diagnostic. If TOP–FPV disagrees with the chain, ignore it.
+
+---
+
+## 13. Runtime notes
+
+FPV tracking is the slowest part.
+
+Start with:
+
+```text
+dynamic_interval = 8
+dynamic_grid_step = 10
+```
+
+If TPV–FPV becomes too sparse, rerun only FPV with:
+
+```text
+dynamic_interval = 5
+dynamic_grid_step = 8
+```
+
+Avoid very dense FPV tracking unless needed, because it can take a long time even on an A6000.
+
+---
+
+## 14. Troubleshooting
+
+### `pred_offset=None`
+
+This does not always mean failure. Check the top candidate offsets in the result output or in `pairwise_offsets.csv`.
+
+If candidates form a clean basin, for example:
+
+```text
+-6, -5, -7, -4
+```
+
+the fallback minimum may still be useful.
+
+### Larger `offset_range` gives worse results
+
+This is common with FPV. A larger range can introduce false minima. Use cropped action windows and local refinement:
+
+```text
+offset_range = 25
+```
+
+### Too many matches on static products
+
+The segmentation is too broad. Use hand/arm-only tags or stricter masks.
+
+### Matcher prefers head/body
+
+The mask includes too much of the person. For synchronization, the active hand/arm region is usually more informative than the full body.
+
+### TOP–FPV remains unreliable
+
+Use TPV as bridge:
+
+```text
+TOP ↔ TPV ↔ FPV
+```
+
+Do not force TOP–FPV into the global graph.
