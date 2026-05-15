@@ -660,7 +660,5 @@ TOP ↔ TPV ↔ FPV
 ```
 
 Do not force TOP–FPV into the global graph.
-TOP ↔ TPV ↔ FPV
-```
 
-Do not force TOP–FPV into the global graph.
+
