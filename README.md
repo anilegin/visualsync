@@ -1,4 +1,19 @@
 # PRIN Dataset VisualSync Pipeline
+## PRIN dataset example
+
+PRIN is a multi-view dataset captured from synchronized camera perspectives during object-interaction scenes. In this repository, each sequence is prepared from three views: an overhead **TOP** camera, a room-level **TPV** third-person camera, and an egocentric **FPV** first-person camera. The examples below show the three PRIN camera angles with tracked segmentation IDs overlaid.
+
+<p align="center">
+  <img src="assets/mask_ids_top.jpg" width="32%" alt="PRIN TOP camera tracked segmentation">
+  <img src="assets/mask_ids_tpv.jpg" width="32%" alt="PRIN TPV camera tracked segmentation">
+  <img src="assets/mask_ids_fpv.jpg" width="32%" alt="PRIN FPV camera tracked segmentation">
+</p>
+
+The merged synchronized result also combines the three views into a single visual check:
+
+<p align="center">
+  <img src="assets/ID_0_synced.gif" width="100%" alt="Merged synchronized PRIN multi-view video">
+</p>
 
 This repository contains a working and minimal dataset spesific implementation on top of VisualSync. The goal is to synchronize three PRIN camera views:
 
