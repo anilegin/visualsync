@@ -131,7 +131,7 @@ def main():
         print(f"         mode={mode}, interval={interval}, grid_step={grid_step}")
 
         cmd = [
-            "python", "tools/vis/run_cotracker_v5.py",
+            "python", "src/run_cotracker_v5.py",
             "--video_dir", str(rgb_dir),
             "--mask_dir", str(mask_dir),
             "--save_dir", str(out_dir),
